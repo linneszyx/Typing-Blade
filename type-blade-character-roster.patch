@@ -1,0 +1,379 @@
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -3,8 +3,14 @@
+ import { ArenaScene, type ArenaState } from './game/ArenaScene'
+ 
+ type Phase = 'ready' | 'playing' | 'victory' | 'defeat'
++type CharacterId = 'akira' | 'reina' | 'raiden'
++type Character = { id: CharacterId; name: string; title: string; kanji: string; weapon: string; style: string; ultimate: string; color: string; damage: number; phrases: string[] }
++const CHARACTERS: Character[] = [
++  { id: 'akira', name: 'AKIRA', title: 'THE KEYBLADE', kanji: '影', weapon: 'KATANA', style: 'Balanced strikes · reliable damage', ultimate: 'VOID BREAKER', color: '#58eaff', damage: 1, phrases: ['strike without hesitation', 'focus your inner power', 'the blade remembers', 'be faster than lightning', 'one final decisive strike'] },
++  { id: 'reina', name: 'REINA', title: 'THE PHANTOM DANCER', kanji: '舞', weapon: 'TWIN DAGGERS', style: 'Fast combo · lighter hits, rapid rhythm', ultimate: 'THOUSAND PETALS', color: '#ff6eb4', damage: 0.82, phrases: ['dance between the shadows', 'a thousand petals fall', 'no blade can catch me', 'silent steps fatal cuts'] },
++  { id: 'raiden', name: 'RAIDEN', title: 'THE STORM LANCER', kanji: '雷', weapon: 'ENERGY SPEAR', style: 'Heavy strikes · high damage, slower rhythm', ultimate: 'STORM PIERCE', color: '#ffc857', damage: 1.28, phrases: ['pierce the eye of the storm', 'thunder answers my call', 'one point breaks the heavens', 'lightning chooses its vessel'] },
++]
+ const WORDS = ['SHADOW', 'KATANA', 'FLASH', 'VORTEX', 'PHANTOM', 'STRIKE', 'ZENITH', 'CRIMSON', 'THUNDER', 'ECLIPSE', 'DRAGON', 'NOVA', 'BLADE', 'RISING', 'NIGHTFALL', 'OVERDRIVE']
+-const PHRASES = ['strike without hesitation', 'focus your inner power', 'the blade remembers', 'be faster than lightning', 'one final decisive strike']
+ const MAX_HP = 100
+ 
+ export default function App() {
+@@ -14,6 +20,8 @@
+   const startTime = useRef<number>(Date.now())
+   const lastEnemyHit = useRef<number>(0)
+   const [phase, setPhase] = useState<Phase>('ready')
++  const [characterId, setCharacterId] = useState<CharacterId>('akira')
++  const character = CHARACTERS.find((item) => item.id === characterId) ?? CHARACTERS[0]
+   const [playerHp, setPlayerHp] = useState(MAX_HP)
+   const [enemyHp, setEnemyHp] = useState(MAX_HP)
+   const [target, setTarget] = useState(WORDS[0])
+@@ -53,8 +61,8 @@
+   }, [])
+ 
+   const arenaState = useMemo<ArenaState>(() => ({
+-    playerHp, enemyHp, playerMaxHp: MAX_HP, enemyMaxHp: MAX_HP, phase
+-  }), [playerHp, enemyHp, phase])
++    playerHp, enemyHp, playerMaxHp: MAX_HP, enemyMaxHp: MAX_HP, phase, characterId
++  }), [playerHp, enemyHp, phase, characterId])
+ 
+   useEffect(() => {
+     gameRef.current?.events.emit('arena:update', arenaState)
+@@ -149,9 +157,10 @@
+       return
+     }
+     if (nextTyped === target) {
+-      const damage = specialMode
++      const baseDamage = specialMode
+         ? Math.min(38, 26 + Math.floor(combo / 3) * 3)
+         : Math.min(24, 8 + Math.floor(combo / 2) * 2)
++      const damage = Math.round(baseDamage * character.damage)
+       const attackKind = specialMode ? 'special' : 'player'
+       gameRef.current?.events.emit('arena:action', { kind: attackKind, combo })
+       setEnemyHp((hp) => {
+@@ -185,11 +194,11 @@
+       setMessage('SPECIAL LOCKED // Land two clean hits to build your combo first.')
+       return
+     }
+-    const phrase = PHRASES[Math.floor(Math.random() * PHRASES.length)]
++    const phrase = character.phrases[Math.floor(Math.random() * character.phrases.length)]
+     setTarget(phrase.toUpperCase())
+     setTyped('')
+     setSpecialMode(true)
+-    setMessage('ULTIMATE ART CHARGED // Complete the full phrase for bonus damage.')
++    setMessage(`ULTIMATE ART CHARGED // ${character.ultimate} // Complete the phrase for bonus damage.`)
+     inputRef.current?.focus()
+   }
+ 
+@@ -233,10 +242,20 @@
+           <div><span className="section-index">01</span><span className="section-name">THE DUEL ARENA</span></div>
+           <div className={`round-clock ${enemyTelegraph ? 'incoming' : ''}`}><span className="clock-dot" /> {enemyTelegraph ? 'INCOMING STRIKE' : 'ROUND TIME'} <strong>00:{String(timeLeft).padStart(2, '0')}</strong></div>
+         </div>
++        <div className="character-select">
++          <div className="select-heading"><span className="section-index">PICK YOUR FIGHTER</span><span>LOADOUT LOCKS WHEN DUEL BEGINS</span></div>
++          <div className="character-options">
++            {CHARACTERS.map((item) => (
++              <button key={item.id} className={`character-option ${characterId === item.id ? 'selected' : ''}`} style={{ '--fighter-color': item.color } as React.CSSProperties} onClick={() => { if (phase !== 'playing') setCharacterId(item.id) }} disabled={phase === 'playing'} aria-pressed={characterId === item.id}>
++                <span className="character-kanji">{item.kanji}</span><span className="character-copy"><strong>{item.name}</strong><small>{item.weapon}</small><em>{item.style}</em></span><span className="character-check">{characterId === item.id ? '✓ SELECTED' : 'SELECT'}</span>
++              </button>
++            ))}
++          </div>
++        </div>
+         <div className="fighters-hud">
+           <div className="fighter-info player-info">
+-            <div className="fighter-icon player-icon">影</div>
+-            <div className="fighter-details"><strong>AKIRA</strong><span>THE KEYBLADE</span></div>
++            <div className="fighter-icon player-icon" style={{ color: character.color, borderColor: `${character.color}99` }}>{character.kanji}</div>
++            <div className="fighter-details"><strong>{character.name}</strong><span>{character.title}</span></div>
+             <div className="level">LV.01</div>
+           </div>
+           <div className="versus">VS</div>
+--- a/src/styles.css
++++ b/src/styles.css
+@@ -163,3 +163,26 @@
+ .primary-button.charged { background: linear-gradient(100deg, #c4a0ff, #58eaff); box-shadow: 0 0 22px #9b6cff3d; }
+ .primary-button:disabled { cursor: not-allowed; opacity: .48; transform: none; box-shadow: none; }
+ @keyframes dangerPulse { from { opacity: .65; } to { opacity: 1; } }
++
++/* Character roster upgrade */
++.character-select { padding: 13px 22px 16px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, #11111e, #10101a); }
++.select-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
++.select-heading > span:last-child { color: #646783; font-size: 8px; letter-spacing: 1.1px; }
++.character-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
++.character-option { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 11px; text-align: left; color: #dfe0f5; background: #0b0b15; border: 1px solid #28283f; cursor: pointer; transition: border-color .16s, background .16s, transform .16s; }
++.character-option:hover:not(:disabled) { transform: translateY(-2px); border-color: color-mix(in srgb, var(--fighter-color), transparent 35%); }
++.character-option.selected { border-color: var(--fighter-color); background: color-mix(in srgb, var(--fighter-color) 8%, #0b0b15); box-shadow: inset 0 0 18px color-mix(in srgb, var(--fighter-color) 7%, transparent); }
++.character-option:disabled { cursor: default; opacity: .88; }
++.character-kanji { flex: 0 0 40px; height: 42px; display: grid; place-items: center; color: var(--fighter-color); border: 1px solid color-mix(in srgb, var(--fighter-color) 45%, transparent); background: color-mix(in srgb, var(--fighter-color) 8%, transparent); font: 800 24px 'Barlow Condensed', sans-serif; }
++.character-copy { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
++.character-copy strong { font: 800 16px 'Barlow Condensed', sans-serif; letter-spacing: 1px; }
++.character-copy small { color: var(--fighter-color); font-size: 8px; letter-spacing: 1px; }
++.character-copy em { color: #7e819e; font-size: 9px; font-style: normal; line-height: 1.25; }
++.character-check { margin-left: auto; align-self: flex-start; white-space: nowrap; color: var(--fighter-color); font-size: 7px; letter-spacing: .7px; }
++@media (max-width: 700px) {
++  .character-select { padding: 12px; }
++  .character-options { grid-template-columns: 1fr; }
++  .character-option { padding: 9px; }
++  .character-copy em { font-size: 10px; }
++  .select-heading > span:last-child { max-width: 130px; text-align: right; line-height: 1.4; }
++}
+--- a/src/game/ArenaScene.ts
++++ b/src/game/ArenaScene.ts
+@@ -1,4 +1,6 @@
+ import Phaser from 'phaser'
++
++export type ArenaCharacter = 'akira' | 'reina' | 'raiden'
+ 
+ export type ArenaState = {
+   playerHp: number
+@@ -6,6 +8,7 @@
+   playerMaxHp: number
+   enemyMaxHp: number
+   phase: 'ready' | 'playing' | 'victory' | 'defeat'
++  characterId: ArenaCharacter
+ }
+ 
+ export class ArenaScene extends Phaser.Scene {
+@@ -14,13 +17,15 @@
+   private fx!: Phaser.GameObjects.Graphics
+   private label!: Phaser.GameObjects.Text
+   private state: ArenaState = {
+-    playerHp: 100, enemyHp: 100, playerMaxHp: 100, enemyMaxHp: 100, phase: 'ready'
++    playerHp: 100, enemyHp: 100, playerMaxHp: 100, enemyMaxHp: 100, phase: 'ready', characterId: 'akira'
+   }
+   private tick = 0
+   private flash = 0
+   private playerLunge = 0
+   private enemyLunge = 0
+   private specialFlash = 0
++  private playerAttack = 0
++  private enemyAttack = 0
+ 
+   constructor() {
+     super('ArenaScene')
+@@ -41,10 +46,12 @@
+     })
+     this.game.events.on('arena:action', (action: { kind: 'player' | 'enemy' | 'special'; combo?: number }) => {
+       if (action.kind === 'enemy') {
++        this.enemyAttack = 1
+         this.enemyLunge = 1
+         this.flash = 1
+         this.cameras.main.shake(120, 0.009)
+       } else {
++        this.playerAttack = 1
+         this.playerLunge = 1
+         this.flash = 1
+         this.cameras.main.shake(action.kind === 'special' ? 190 : 95, action.kind === 'special' ? 0.016 : 0.006)
+@@ -63,7 +70,9 @@
+     this.playerLunge = Math.max(0, this.playerLunge - delta / 220)
+     this.enemyLunge = Math.max(0, this.enemyLunge - delta / 220)
+     this.flash = Math.max(0, this.flash - delta / 180)
+-    this.specialFlash = Math.max(0, this.specialFlash - delta / 260)
++    this.specialFlash = Math.max(0, this.specialFlash - delta / 520)
++    this.playerAttack = Math.max(0, this.playerAttack - delta / (this.specialFlash > 0 ? 850 : 360))
++    this.enemyAttack = Math.max(0, this.enemyAttack - delta / 420)
+     this.drawArena()
+   }
+ 
+@@ -109,16 +118,16 @@
+     const px = w * 0.25 - this.playerLunge * 42 * scale
+     const ex = w * 0.75 + this.enemyLunge * 42 * scale
+     const baseY = floor - 6
+-    this.drawFighter(this.fighters, px, baseY, scale, false, this.state.playerHp <= 0)
+-    this.drawFighter(this.fighters, ex, baseY, scale, true, this.state.enemyHp <= 0)
++    this.drawFighter(this.fighters, px, baseY, scale, false, this.state.playerHp <= 0, this.playerAttack, this.specialFlash > 0.1, this.state.characterId)
++    this.drawFighter(this.fighters, ex, baseY, scale, true, this.state.enemyHp <= 0, this.enemyAttack, false, 'akira')
+ 
+     this.fx.clear()
+     if (this.playerLunge > 0.02) {
+-      this.fx.lineStyle(this.specialFlash > 0.1 ? 13 : 5, this.specialFlash > 0.1 ? 0xd9b4ff : 0x63f6ff, this.playerLunge)
++      this.fx.lineStyle(this.specialFlash > 0.1 ? 13 : 5, this.specialFlash > 0.1 ? (this.state.characterId === 'raiden' ? 0xffc857 : this.state.characterId === 'reina' ? 0xff9bd0 : 0xd9b4ff) : (this.state.characterId === 'raiden' ? 0xffc857 : this.state.characterId === 'reina' ? 0xff6eb4 : 0x63f6ff), this.playerLunge)
+       this.fx.lineBetween(px + 35 * scale, baseY - 110 * scale, ex - 48 * scale, baseY - 80 * scale)
+       this.fx.lineStyle(2, 0xffffff, this.playerLunge * 0.9)
+       this.fx.lineBetween(px + 42 * scale, baseY - 124 * scale, ex - 35 * scale, baseY - 60 * scale)
+-      this.fx.fillStyle(this.specialFlash > 0.1 ? 0xb77aff : 0x63f6ff, this.playerLunge * 0.45)
++      this.fx.fillStyle(this.specialFlash > 0.1 ? (this.state.characterId === 'raiden' ? 0xffc857 : this.state.characterId === 'reina' ? 0xff6eb4 : 0xb77aff) : (this.state.characterId === 'raiden' ? 0xffc857 : this.state.characterId === 'reina' ? 0xff6eb4 : 0x63f6ff), this.playerLunge * 0.45)
+       this.fx.fillCircle(ex - 45 * scale, baseY - 80 * scale, (this.specialFlash > 0.1 ? 48 : 25) * scale * this.playerLunge)
+       for (let i = 0; i < 5; i++) {
+         const spread = (i - 2) * 13 * scale
+@@ -142,69 +151,140 @@
+       this.fx.fillStyle(0xffffff, this.flash * 0.16)
+       this.fx.fillRect(0, 0, w, h)
+     }
++    const ultimateName = this.state.characterId === 'raiden' ? 'STORM PIERCE' : this.state.characterId === 'reina' ? 'THOUSAND PETALS' : 'VOID BREAKER'
+     this.label.setPosition(w / 2, h * 0.16)
+       .setText(this.state.phase === 'victory' ? 'DUEL COMPLETE // VICTORY' :
+         this.state.phase === 'defeat' ? 'DUEL COMPLETE // DEFEAT' :
+-        this.state.phase === 'ready' ? 'READY YOUR KEYBOARD' : this.specialFlash > 0.1 ? 'ULTIMATE ART // VOID BREAKER' : 'FIGHT // TYPE TO STRIKE')
++        this.state.phase === 'ready' ? 'READY YOUR KEYBOARD' : this.specialFlash > 0.1 ? `ULTIMATE ART // ${ultimateName}` : 'FIGHT // TYPE TO STRIKE')
+       .setColor(this.state.phase === 'victory' ? '#7bffcf' : this.state.phase === 'defeat' ? '#ff739e' : '#e9e9ff')
+   }
+ 
+-  private drawFighter(g: Phaser.GameObjects.Graphics, x: number, y: number, s: number, enemy: boolean, down: boolean) {
+-    const c = enemy ? 0xff4f8b : 0x4deaff
+-    const dark = enemy ? 0x5e1b49 : 0x163b69
++  private drawFighter(
++    g: Phaser.GameObjects.Graphics,
++    x: number,
++    y: number,
++    s: number,
++    enemy: boolean,
++    down: boolean,
++    attack: number,
++    ultimate: boolean,
++    characterId: ArenaCharacter,
++  ) {
++    const playerColor = characterId === 'reina' ? 0xff6eb4 : characterId === 'raiden' ? 0xffc857 : 0x4deaff
++    const c = enemy ? 0xff4f8b : playerColor
++    const dark = enemy ? 0x5e1b49 : characterId === 'reina' ? 0x59264b : characterId === 'raiden' ? 0x55411e : 0x163b69
++    const hair = enemy ? 0x25142e : characterId === 'reina' ? 0x32142e : characterId === 'raiden' ? 0x2b2414 : 0x102038
+     const dir = enemy ? -1 : 1
+-    const bob = Math.sin(this.tick / 240 + (enemy ? 1.4 : 0)) * 3 * s
++    const swing = Phaser.Math.Easing.Cubic.Out(Phaser.Math.Clamp(attack, 0, 1))
++    const bob = Math.sin(this.tick / 190 + (enemy ? 1.4 : 0)) * 3 * s
++    const breathe = Math.sin(this.tick / 330 + (enemy ? 0.8 : 0)) * 1.6 * s
++    const lean = swing * dir * (ultimate ? 15 : 9) * s
+     const yy = y + bob
+-    g.fillStyle(c, 0.14)
+-    g.fillEllipse(x, y + 4 * s, 105 * s, 19 * s)
++    const torsoY = yy - 112 * s + breathe
++    const headY = yy - 135 * s + breathe
++    const weaponColor = ultimate ? 0xd9b4ff : 0xe9faff
++
++    // Ground aura and shadow pulse with the idle/attack cycle.
++    g.fillStyle(c, 0.10 + Math.sin(this.tick / 160) * 0.035 + swing * 0.12)
++    g.fillEllipse(x, y + 4 * s, (105 + swing * 22) * s, 19 * s)
+     if (down) {
+       g.fillStyle(dark, 1)
+-      g.fillRoundedRect(x - 44 * s, y - 38 * s, 88 * s, 32 * s, 10 * s)
++      g.fillRoundedRect(x - 44 * s, y - 34 * s, 88 * s, 27 * s, 10 * s)
+       g.fillStyle(c, 0.8)
+-      g.fillCircle(x + dir * 28 * s, y - 27 * s, 4 * s)
++      g.fillCircle(x + dir * 28 * s, y - 25 * s, 4 * s)
++      g.lineStyle(2 * s, c, 0.3)
++      g.lineBetween(x - 36 * s, y - 3 * s, x + 36 * s, y - 3 * s)
+       return
+     }
+-    // Long anime hair silhouette
++
++    // Back hair / long anime silhouette; the tips flutter while standing.
++    const hairFlutter = Math.sin(this.tick / 85 + (enemy ? 1.2 : 0)) * 5 * s
+     g.fillStyle(dark, 1)
+-    g.fillTriangle(x - 23 * s, yy - 164 * s, x + 28 * s, yy - 160 * s, x + dir * 50 * s, yy - 103 * s)
+-    g.fillTriangle(x - 19 * s, yy - 155 * s, x + 12 * s, yy - 161 * s, x - 37 * s, yy - 113 * s)
+-    // legs and boots
++    g.fillTriangle(x - 23 * s, headY - 29 * s, x + 28 * s, headY - 25 * s, x + dir * (50 + hairFlutter) * s, headY + 32 * s)
++    g.fillTriangle(x - 19 * s, headY - 20 * s, x + 12 * s, headY - 26 * s, x - (37 - hairFlutter) * s, headY + 22 * s)
++
++    // Legs bend slightly into the attack lunge.
+     g.fillStyle(0x171b31, 1)
+-    g.fillRoundedRect(x - 22 * s, yy - 66 * s, 18 * s, 60 * s, 6 * s)
+-    g.fillRoundedRect(x + 5 * s, yy - 66 * s, 18 * s, 60 * s, 6 * s)
++    g.fillRoundedRect(x - 22 * s - swing * dir * 5 * s, yy - 66 * s, 18 * s, 60 * s, 6 * s)
++    g.fillRoundedRect(x + 5 * s + swing * dir * 7 * s, yy - 66 * s, 18 * s, 60 * s, 6 * s)
+     g.fillStyle(c, 0.9)
+-    g.fillRoundedRect(x - 27 * s, yy - 12 * s, 29 * s, 10 * s, 4 * s)
+-    g.fillRoundedRect(x + 1 * s, yy - 12 * s, 29 * s, 10 * s, 4 * s)
+-    // torso / jacket
++    g.fillRoundedRect(x - 27 * s - swing * dir * 5 * s, yy - 12 * s, 29 * s, 10 * s, 4 * s)
++    g.fillRoundedRect(x + 1 * s + swing * dir * 7 * s, yy - 12 * s, 29 * s, 10 * s, 4 * s)
++
++    // Jacket and sash lean forward during an attack.
+     g.fillStyle(dark, 1)
+-    g.fillRoundedRect(x - 31 * s, yy - 112 * s, 62 * s, 56 * s, 12 * s)
++    g.fillRoundedRect(x - 31 * s + lean, torsoY, 62 * s, 56 * s, 12 * s)
+     g.fillStyle(c, 1)
+-    g.fillTriangle(x - 20 * s, yy - 107 * s, x + 19 * s, yy - 107 * s, x + dir * 4 * s, yy - 61 * s)
++    g.fillTriangle(x - 20 * s + lean, torsoY + 5 * s, x + 19 * s + lean, torsoY + 5 * s, x + dir * 4 * s + lean, yy - 61 * s)
+     g.lineStyle(3 * s, c, 0.9)
+-    g.lineBetween(x - 26 * s, yy - 97 * s, x - 33 * s, yy - 70 * s)
+-    // arms
++    g.lineBetween(x - 26 * s + lean, torsoY + 15 * s, x - 33 * s + lean, yy - 70 * s)
++
++    // Rear arm counter-swings to make the pose read as an actual slash.
+     g.lineStyle(12 * s, dark, 1)
+-    g.lineBetween(x - dir * 22 * s, yy - 103 * s, x - dir * 43 * s, yy - 76 * s)
+-    g.lineBetween(x + dir * 22 * s, yy - 103 * s, x + dir * 45 * s, yy - 127 * s)
++    g.lineBetween(x - dir * 22 * s + lean, torsoY + 9 * s, x - dir * (43 + swing * 8) * s + lean, yy - (76 - swing * 7) * s)
++    g.fillStyle(c, 0.9)
++    g.fillCircle(x - dir * (43 + swing * 8) * s + lean, yy - (76 - swing * 7) * s, 5 * s)
++
++    // Face, sharp fringe, glowing eyes.
++    g.fillStyle(0xffd8c8, 1)
++    g.fillEllipse(x + lean, headY, 43 * s, 48 * s)
++    g.fillStyle(hair, 1)
++    g.fillTriangle(x - 22 * s + lean, headY - 10 * s, x + 24 * s + lean, headY - 14 * s, x + dir * 8 * s + lean, headY + 8 * s)
++    g.fillTriangle(x - 10 * s + lean, headY - 18 * s, x + 18 * s + lean, headY - 13 * s, x - 3 * s + lean, headY + 1 * s)
+     g.fillStyle(c, 1)
+-    g.fillCircle(x + dir * 45 * s, yy - 127 * s, 7 * s)
+-    // face
+-    g.fillStyle(0xffd8c8, 1)
+-    g.fillEllipse(x, yy - 135 * s, 43 * s, 48 * s)
+-    // bangs
+-    g.fillStyle(enemy ? 0x25142e : 0x102038, 1)
+-    g.fillTriangle(x - 22 * s, yy - 145 * s, x + 24 * s, yy - 149 * s, x + dir * 8 * s, yy - 127 * s)
+-    g.fillTriangle(x - 10 * s, yy - 153 * s, x + 18 * s, yy - 148 * s, x - 3 * s, yy - 134 * s)
+-    // eyes
++    g.fillEllipse(x + dir * 9 * s + lean, headY + 1 * s, 9 * s, 4 * s)
++
++    // Scarf whips behind the fighter during a strike.
++    g.fillStyle(enemy ? 0xffb1d1 : 0xb0fcff, 1)
++    g.fillTriangle(x - 12 * s + lean, yy - 115 * s, x + 17 * s + lean, yy - 115 * s, x - dir * (47 + swing * 24 + hairFlutter) * s, yy - (97 - swing * 13) * s)
++
++    // Weapon arm changes pose: raised guard while idle, forward slash while attacking,
++    // and a two-handed overhead blade for the ultimate.
++    const shoulderX = x + dir * 22 * s + lean
++    const shoulderY = torsoY + 7 * s
++    const handX = x + dir * (ultimate ? 36 : 45 + swing * 8) * s + lean
++    const handY = ultimate ? yy - 150 * s - swing * 8 * s : yy - (127 - swing * 21) * s
++    g.lineStyle(12 * s, dark, 1)
++    g.lineBetween(shoulderX, shoulderY, handX, handY)
+     g.fillStyle(c, 1)
+-    g.fillEllipse(x + dir * 9 * s, yy - 134 * s, 9 * s, 4 * s)
+-    // scarf
+-    g.fillStyle(enemy ? 0xffb1d1 : 0xb0fcff, 1)
+-    g.fillTriangle(x - 12 * s, yy - 115 * s, x + 17 * s, yy - 115 * s, x - dir * 47 * s, yy - 97 * s)
+-    // weapon
+-    g.lineStyle(5 * s, 0xe9faff, 1)
+-    g.lineBetween(x + dir * 47 * s, yy - 126 * s, x + dir * 79 * s, yy - 166 * s)
+-    g.lineStyle(2 * s, c, 1)
+-    g.lineBetween(x + dir * 42 * s, yy - 120 * s, x + dir * 84 * s, yy - 171 * s)
+-  }
++    g.fillCircle(handX, handY, 7 * s)
++
++    const bladeStartX = handX + dir * (ultimate ? 7 : 5) * s
++    const bladeStartY = handY - (ultimate ? 1 : 2) * s
++    if (!enemy && characterId === 'reina') {
++      // Reina's twin daggers: two short blades cross during her rapid, close-range style.
++      for (const offset of [-12, 12]) {
++        g.lineStyle((ultimate ? 6 : 4) * s, weaponColor, 1)
++        g.lineBetween(bladeStartX + offset * s, bladeStartY, bladeStartX + dir * (ultimate ? 47 : 36) * s + offset * s, bladeStartY - (ultimate ? 38 : 20) * s)
++        g.lineStyle(2 * s, c, 0.95)
++        g.lineBetween(bladeStartX + offset * s, bladeStartY + 3 * s, bladeStartX + dir * (ultimate ? 47 : 36) * s + offset * s, bladeStartY - (ultimate ? 35 : 17) * s)
++      }
++    } else if (!enemy && characterId === 'raiden') {
++      // Raiden's long spear uses a straight thrust rather than a katana arc.
++      const spearEndX = x + dir * (ultimate ? 112 : 125) * s + lean
++      const spearEndY = yy - (ultimate ? 118 : 91 + swing * 16) * s
++      g.lineStyle((ultimate ? 7 : 5) * s, weaponColor, 1)
++      g.lineBetween(bladeStartX, bladeStartY, spearEndX, spearEndY)
++      g.lineStyle(3 * s, c, 1)
++      g.lineBetween(spearEndX - dir * 10 * s, spearEndY + 10 * s, spearEndX, spearEndY - 9 * s)
++      g.lineBetween(spearEndX + dir * 10 * s, spearEndY + 10 * s, spearEndX, spearEndY - 9 * s)
++    } else {
++      const bladeEndX = ultimate ? x + dir * 12 * s + lean : x + dir * (79 - swing * 8) * s + lean
++      const bladeEndY = ultimate ? yy - 195 * s : yy - (166 - swing * 35) * s
++      g.lineStyle((ultimate ? 8 : 5) * s, weaponColor, 1)
++      g.lineBetween(bladeStartX, bladeStartY, bladeEndX, bladeEndY)
++      g.lineStyle(2 * s, c, 1)
++      g.lineBetween(bladeStartX - dir * 5 * s, bladeStartY + 5 * s, bladeEndX - dir * 5 * s, bladeEndY + 5 * s)
++    }
++
++    if (swing > 0.03) {
++      const arcX = x + dir * 45 * s + lean
++      const arcY = yy - (110 + swing * 16) * s
++      g.lineStyle((ultimate ? 7 : 3) * s, ultimate ? 0xd9b4ff : c, swing * 0.85)
++      g.beginPath()
++      g.arc(arcX, arcY, (ultimate ? 67 : 48) * s, enemy ? 0.2 : 2.6, enemy ? 2.8 : 5.8, false)
++      g.strokePath()
++    }
++  }
++
+ }

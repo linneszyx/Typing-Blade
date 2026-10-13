@@ -3,9 +3,27 @@ import Phaser from 'phaser'
 import { ArenaScene, type ArenaState } from './game/ArenaScene'
 
 type Phase = 'ready' | 'playing' | 'victory' | 'defeat'
+type CharacterId = 'akira' | 'reina' | 'raiden'
+type Character = { id: CharacterId; name: string; title: string; kanji: string; weapon: string; style: string; ultimate: string; color: string; damage: number; phrases: string[] }
+type PlayerProfile = { xp: number; wins: number; losses: number; bestCombo: number; bestWpm: number }
+const CHARACTERS: Character[] = [
+  { id: 'akira', name: 'AKIRA', title: 'THE KEYBLADE', kanji: '影', weapon: 'KATANA', style: 'Balanced strikes · reliable damage', ultimate: 'VOID BREAKER', color: '#58eaff', damage: 1, phrases: ['strike without hesitation', 'focus your inner power', 'the blade remembers', 'be faster than lightning', 'one final decisive strike'] },
+  { id: 'reina', name: 'REINA', title: 'THE PHANTOM DANCER', kanji: '舞', weapon: 'TWIN DAGGERS', style: 'Fast combo · lighter hits, rapid rhythm', ultimate: 'THOUSAND PETALS', color: '#ff6eb4', damage: 0.82, phrases: ['dance between the shadows', 'a thousand petals fall', 'no blade can catch me', 'silent steps fatal cuts'] },
+  { id: 'raiden', name: 'RAIDEN', title: 'THE STORM LANCER', kanji: '雷', weapon: 'ENERGY SPEAR', style: 'Heavy strikes · high damage, slower rhythm', ultimate: 'STORM PIERCE', color: '#ffc857', damage: 1.28, phrases: ['pierce the eye of the storm', 'thunder answers my call', 'one point breaks the heavens', 'lightning chooses its vessel'] },
+]
 const WORDS = ['SHADOW', 'KATANA', 'FLASH', 'VORTEX', 'PHANTOM', 'STRIKE', 'ZENITH', 'CRIMSON', 'THUNDER', 'ECLIPSE', 'DRAGON', 'NOVA', 'BLADE', 'RISING', 'NIGHTFALL', 'OVERDRIVE']
-const PHRASES = ['strike without hesitation', 'focus your inner power', 'the blade remembers', 'be faster than lightning', 'one final decisive strike']
 const MAX_HP = 100
+const PROFILE_KEY = 'type-blade-profile-v1'
+const emptyProfile: PlayerProfile = { xp: 0, wins: 0, losses: 0, bestCombo: 0, bestWpm: 0 }
+function readProfile(): PlayerProfile {
+  try {
+    const raw = window.localStorage.getItem(PROFILE_KEY)
+    if (!raw) return emptyProfile
+    const value = JSON.parse(raw) as Partial<PlayerProfile>
+    return { xp: Math.max(0, Number(value.xp) || 0), wins: Math.max(0, Number(value.wins) || 0), losses: Math.max(0, Number(value.losses) || 0), bestCombo: Math.max(0, Number(value.bestCombo) || 0), bestWpm: Math.max(0, Number(value.bestWpm) || 0) }
+  } catch { return emptyProfile }
+}
+function levelForXp(xp: number) { return Math.floor(xp / 150) + 1 }
 
 export default function App() {
   const mountRef = useRef<HTMLDivElement>(null)
@@ -14,6 +32,11 @@ export default function App() {
   const startTime = useRef<number>(Date.now())
   const lastEnemyHit = useRef<number>(0)
   const [phase, setPhase] = useState<Phase>('ready')
+  const [characterId, setCharacterId] = useState<CharacterId>('akira')
+  const [profile, setProfile] = useState<PlayerProfile>(readProfile)
+  const playerLevel = levelForXp(profile.xp)
+  const unlockedCharacters: CharacterId[] = ['akira', ...(playerLevel >= 2 ? ['reina' as const] : []), ...(playerLevel >= 4 ? ['raiden' as const] : [])]
+  const character = CHARACTERS.find((item) => item.id === characterId) ?? CHARACTERS[0]
   const [playerHp, setPlayerHp] = useState(MAX_HP)
   const [enemyHp, setEnemyHp] = useState(MAX_HP)
   const [target, setTarget] = useState(WORDS[0])
@@ -27,6 +50,8 @@ export default function App() {
   const [timeLeft, setTimeLeft] = useState(60)
   const [message, setMessage] = useState('Press BEGIN DUEL to enter the arena.')
   const [flash, setFlash] = useState<'player' | 'enemy' | ''>('')
+  const [specialMode, setSpecialMode] = useState(false)
+  const [enemyTelegraph, setEnemyTelegraph] = useState(false)
   const [soundOn, setSoundOn] = useState(false)
   const audioRef = useRef<AudioContext | null>(null)
 
@@ -51,8 +76,8 @@ export default function App() {
   }, [])
 
   const arenaState = useMemo<ArenaState>(() => ({
-    playerHp, enemyHp, playerMaxHp: MAX_HP, enemyMaxHp: MAX_HP, phase
-  }), [playerHp, enemyHp, phase])
+    playerHp, enemyHp, playerMaxHp: MAX_HP, enemyMaxHp: MAX_HP, phase, characterId
+  }), [playerHp, enemyHp, phase, characterId])
 
   useEffect(() => {
     gameRef.current?.events.emit('arena:update', arenaState)
@@ -77,17 +102,25 @@ export default function App() {
   }, [soundOn])
 
   const endGame = useCallback((result: 'victory' | 'defeat') => {
+    setProfile((previous) => {
+      const xpGain = result === 'victory' ? 100 : 35
+      const next = { ...previous, xp: previous.xp + xpGain, wins: previous.wins + (result === 'victory' ? 1 : 0), losses: previous.losses + (result === 'defeat' ? 1 : 0), bestCombo: Math.max(previous.bestCombo, bestCombo) }
+      try { window.localStorage.setItem(PROFILE_KEY, JSON.stringify(next)) } catch { /* Persistence is optional when storage is blocked. */ }
+      return next
+    })
     setPhase(result)
     setMessage(result === 'victory' ? 'A perfect finish. The arena is yours.' : 'The rival broke your guard. Run it back.')
     setTyped('')
     playTone(result === 'victory' ? 740 : 120, 0.3, 'triangle')
-  }, [playTone])
+  }, [playTone, bestCombo])
 
   const beginDuel = useCallback(() => {
     setPlayerHp(MAX_HP)
     setEnemyHp(MAX_HP)
     setTarget(WORDS[Math.floor(Math.random() * WORDS.length)])
     setTyped('')
+    setSpecialMode(false)
+    setEnemyTelegraph(false)
     setCombo(0)
     setBestCombo(0)
     setHits(0)
@@ -111,9 +144,13 @@ export default function App() {
       if (remaining <= 0) {
         endGame(enemyHp <= playerHp ? 'victory' : 'defeat')
       }
-      // Rival telegraphs an attack every 7 seconds. Landing words keeps pressure on the player.
-      if (Date.now() - lastEnemyHit.current >= 7000) {
+      // Telegraph the rival's attack before it lands, giving the player a readable combat beat.
+      const enemyAttackIn = 7000 - (Date.now() - lastEnemyHit.current)
+      setEnemyTelegraph(enemyAttackIn <= 1200 && enemyAttackIn > 0)
+      if (enemyAttackIn <= 0) {
         lastEnemyHit.current = Date.now()
+        setEnemyTelegraph(false)
+        gameRef.current?.events.emit('arena:action', { kind: 'enemy' })
         setPlayerHp((hp) => {
           const next = Math.max(0, hp - 12)
           setDamageTaken((d) => d + (hp - next))
@@ -122,7 +159,7 @@ export default function App() {
           if (next <= 0) window.setTimeout(() => endGame('defeat'), 0)
           return next
         })
-        setMessage('COUNTER! Your rival landed a hit — keep typing!')
+        setMessage('KURO // INCOMING STRIKE! Keep your rhythm and counterattack!')
       }
     }, 200)
     return () => window.clearInterval(timer)
@@ -141,7 +178,12 @@ export default function App() {
       return
     }
     if (nextTyped === target) {
-      const damage = Math.min(18, 7 + Math.floor(combo / 2) * 2)
+      const baseDamage = specialMode
+        ? Math.min(38, 26 + Math.floor(combo / 3) * 3)
+        : Math.min(24, 8 + Math.floor(combo / 2) * 2)
+      const damage = Math.round(baseDamage * character.damage)
+      const attackKind = specialMode ? 'special' : 'player'
+      gameRef.current?.events.emit('arena:action', { kind: attackKind, combo })
       setEnemyHp((hp) => {
         const next = Math.max(0, hp - damage)
         if (next <= 0) window.setTimeout(() => endGame('victory'), 0)
@@ -155,9 +197,11 @@ export default function App() {
         return next
       })
       setFlash('enemy')
-      gameRef.current?.events.emit('arena:update', { playerHit: 1 })
       playTone(360 + combo * 22, 0.1, 'triangle')
-      setMessage(combo >= 3 ? `COMBO x${combo + 1} // Critical strike!` : 'Direct hit! Keep the pressure on.')
+      setMessage(specialMode
+        ? `ULTIMATE ART // ${damage} DAMAGE // VOID BREAKER!`
+        : combo >= 3 ? `COMBO x${combo + 1} // POWER STRIKE!` : 'DIRECT HIT // Keep the pressure on.')
+      setSpecialMode(false)
       setTarget(WORDS[Math.floor(Math.random() * WORDS.length)])
       setTyped('')
       lastEnemyHit.current = Math.max(lastEnemyHit.current, Date.now() - 1800)
@@ -166,11 +210,16 @@ export default function App() {
   }
 
   const submitPhrase = () => {
-    if (phase !== 'playing') return
-    const phrase = PHRASES[Math.floor(Math.random() * PHRASES.length)]
+    if (phase !== 'playing' || specialMode) return
+    if (combo < 2) {
+      setMessage('SPECIAL LOCKED // Land two clean hits to build your combo first.')
+      return
+    }
+    const phrase = character.phrases[Math.floor(Math.random() * character.phrases.length)]
     setTarget(phrase.toUpperCase())
     setTyped('')
-    setMessage('SPECIAL MOVE // Type the full phrase to unleash a heavy attack.')
+    setSpecialMode(true)
+    setMessage(`ULTIMATE ART CHARGED // ${character.ultimate} // Complete the phrase for bonus damage.`)
     inputRef.current?.focus()
   }
 
@@ -212,13 +261,23 @@ export default function App() {
       <section className="arena-card">
         <div className="arena-topline">
           <div><span className="section-index">01</span><span className="section-name">THE DUEL ARENA</span></div>
-          <div className="round-clock"><span className="clock-dot" /> ROUND TIME <strong>00:{String(timeLeft).padStart(2, '0')}</strong></div>
+          <div className={`round-clock ${enemyTelegraph ? 'incoming' : ''}`}><span className="clock-dot" /> {enemyTelegraph ? 'INCOMING STRIKE' : 'ROUND TIME'} <strong>00:{String(timeLeft).padStart(2, '0')}</strong></div>
+        </div>
+        <div className="character-select">
+          <div className="select-heading"><span className="section-index">PICK YOUR FIGHTER</span><span>LOADOUT LOCKS WHEN DUEL BEGINS</span></div>
+          <div className="character-options">
+            {CHARACTERS.map((item) => (
+              <button key={item.id} className={`character-option ${characterId === item.id ? 'selected' : ''}`} style={{ '--fighter-color': item.color } as React.CSSProperties} onClick={() => { if (phase !== 'playing' && unlockedCharacters.includes(item.id)) setCharacterId(item.id) }} disabled={phase === 'playing' || !unlockedCharacters.includes(item.id)} aria-pressed={characterId === item.id}>
+                <span className="character-kanji">{item.kanji}</span><span className="character-copy"><strong>{item.name}</strong><small>{item.weapon}</small><em>{item.style}</em></span><span className="character-check">{!unlockedCharacters.includes(item.id) ? `🔒 LV.${item.id === 'reina' ? 2 : 4}` : characterId === item.id ? '✓ SELECTED' : 'SELECT'}</span>
+              </button>
+            ))}
+          </div>
         </div>
         <div className="fighters-hud">
           <div className="fighter-info player-info">
-            <div className="fighter-icon player-icon">影</div>
-            <div className="fighter-details"><strong>AKIRA</strong><span>THE KEYBLADE</span></div>
-            <div className="level">LV.01</div>
+            <div className="fighter-icon player-icon" style={{ color: character.color, borderColor: `${character.color}99` }}>{character.kanji}</div>
+            <div className="fighter-details"><strong>{character.name}</strong><span>{character.title}</span></div>
+            <div className="level">LV.{String(playerLevel).padStart(2, '0')}</div>
           </div>
           <div className="versus">VS</div>
           <div className="fighter-info enemy-info">
@@ -246,7 +305,7 @@ export default function App() {
             <div className="word-display" aria-label={`Target word ${target}`}>
               {target.split('').map((char, i) => <span key={`${target}-${i}`} className={i < typed.length ? 'typed-char' : ''}>{char === ' ' ? '·' : char}</span>)}
             </div>
-            <div className="target-hint">TYPE THE WORD TO EXECUTE A STRIKE</div>
+            <div className={`target-hint ${specialMode ? 'special-hint' : ''}`}>{specialMode ? 'ULTIMATE ART // COMPLETE THE PHRASE' : 'TYPE THE WORD TO EXECUTE A STRIKE'}</div>
           </div>
           <div className="typing-box">
             <label htmlFor="typing-input">YOUR INPUT <span>↵ ENTER</span></label>
@@ -266,11 +325,18 @@ export default function App() {
           </div>
         </div>
         <div className="combat-actions">
-          <button className="primary-button" onClick={phase === 'playing' ? submitPhrase : beginDuel}>
-            <span>{phase === 'playing' ? '⚡' : '▶'}</span>{phase === 'playing' ? 'CHARGE SPECIAL MOVE' : phase === 'ready' ? 'BEGIN DUEL' : 'FIGHT AGAIN'}<b>↗</b>
+          <button className={`primary-button ${phase === 'playing' && combo >= 2 ? 'charged' : ''}`} disabled={phase === 'playing' && (combo < 2 || specialMode)} onClick={phase === 'playing' ? submitPhrase : beginDuel}>
+            <span>{phase === 'playing' ? '⚡' : '▶'}</span>{phase === 'playing' ? specialMode ? 'ULTIMATE ART ACTIVE' : combo >= 2 ? 'UNLEASH ULTIMATE ART' : 'SPECIAL LOCKED // 2 HIT COMBO' : phase === 'ready' ? 'BEGIN DUEL' : 'FIGHT AGAIN'}<b>↗</b>
           </button>
           <div className="combat-message"><span className="message-icon">✦</span><span>{message}</span></div>
         </div>
+      </section>
+
+      <section className="progression-panel">
+        <div className="progression-title"><span className="section-index">03</span><span className="section-name">RONIN PROFILE</span><span className="profile-level">LEVEL {playerLevel} · {profile.xp} XP</span></div>
+        <div className="xp-track"><div className="xp-fill" style={{ width: `${(profile.xp % 150) / 150 * 100}%` }} /></div>
+        <div className="progression-foot"><span>{150 - (profile.xp % 150)} XP TO NEXT LEVEL</span><span>{profile.wins} WINS · {profile.losses} LOSSES · BEST COMBO {profile.bestCombo}×</span></div>
+        <p className="unlock-note">FIGHTER UNLOCKS // REINA: LV.2 · RAIDEN: LV.4 · Profile saves in this browser.</p>
       </section>
 
       <section className="stats-row">

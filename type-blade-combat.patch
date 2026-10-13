@@ -1,0 +1,232 @@
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -27,6 +27,8 @@
+   const [timeLeft, setTimeLeft] = useState(60)
+   const [message, setMessage] = useState('Press BEGIN DUEL to enter the arena.')
+   const [flash, setFlash] = useState<'player' | 'enemy' | ''>('')
++  const [specialMode, setSpecialMode] = useState(false)
++  const [enemyTelegraph, setEnemyTelegraph] = useState(false)
+   const [soundOn, setSoundOn] = useState(false)
+   const audioRef = useRef<AudioContext | null>(null)
+ 
+@@ -88,6 +90,8 @@
+     setEnemyHp(MAX_HP)
+     setTarget(WORDS[Math.floor(Math.random() * WORDS.length)])
+     setTyped('')
++    setSpecialMode(false)
++    setEnemyTelegraph(false)
+     setCombo(0)
+     setBestCombo(0)
+     setHits(0)
+@@ -111,9 +115,13 @@
+       if (remaining <= 0) {
+         endGame(enemyHp <= playerHp ? 'victory' : 'defeat')
+       }
+-      // Rival telegraphs an attack every 7 seconds. Landing words keeps pressure on the player.
+-      if (Date.now() - lastEnemyHit.current >= 7000) {
++      // Telegraph the rival's attack before it lands, giving the player a readable combat beat.
++      const enemyAttackIn = 7000 - (Date.now() - lastEnemyHit.current)
++      setEnemyTelegraph(enemyAttackIn <= 1200 && enemyAttackIn > 0)
++      if (enemyAttackIn <= 0) {
+         lastEnemyHit.current = Date.now()
++        setEnemyTelegraph(false)
++        gameRef.current?.events.emit('arena:action', { kind: 'enemy' })
+         setPlayerHp((hp) => {
+           const next = Math.max(0, hp - 12)
+           setDamageTaken((d) => d + (hp - next))
+@@ -122,7 +130,7 @@
+           if (next <= 0) window.setTimeout(() => endGame('defeat'), 0)
+           return next
+         })
+-        setMessage('COUNTER! Your rival landed a hit — keep typing!')
++        setMessage('KURO // INCOMING STRIKE! Keep your rhythm and counterattack!')
+       }
+     }, 200)
+     return () => window.clearInterval(timer)
+@@ -141,7 +149,11 @@
+       return
+     }
+     if (nextTyped === target) {
+-      const damage = Math.min(18, 7 + Math.floor(combo / 2) * 2)
++      const damage = specialMode
++        ? Math.min(38, 26 + Math.floor(combo / 3) * 3)
++        : Math.min(24, 8 + Math.floor(combo / 2) * 2)
++      const attackKind = specialMode ? 'special' : 'player'
++      gameRef.current?.events.emit('arena:action', { kind: attackKind, combo })
+       setEnemyHp((hp) => {
+         const next = Math.max(0, hp - damage)
+         if (next <= 0) window.setTimeout(() => endGame('victory'), 0)
+@@ -155,9 +167,11 @@
+         return next
+       })
+       setFlash('enemy')
+-      gameRef.current?.events.emit('arena:update', { playerHit: 1 })
+       playTone(360 + combo * 22, 0.1, 'triangle')
+-      setMessage(combo >= 3 ? `COMBO x${combo + 1} // Critical strike!` : 'Direct hit! Keep the pressure on.')
++      setMessage(specialMode
++        ? `ULTIMATE ART // ${damage} DAMAGE // VOID BREAKER!`
++        : combo >= 3 ? `COMBO x${combo + 1} // POWER STRIKE!` : 'DIRECT HIT // Keep the pressure on.')
++      setSpecialMode(false)
+       setTarget(WORDS[Math.floor(Math.random() * WORDS.length)])
+       setTyped('')
+       lastEnemyHit.current = Math.max(lastEnemyHit.current, Date.now() - 1800)
+@@ -166,11 +180,16 @@
+   }
+ 
+   const submitPhrase = () => {
+-    if (phase !== 'playing') return
++    if (phase !== 'playing' || specialMode) return
++    if (combo < 2) {
++      setMessage('SPECIAL LOCKED // Land two clean hits to build your combo first.')
++      return
++    }
+     const phrase = PHRASES[Math.floor(Math.random() * PHRASES.length)]
+     setTarget(phrase.toUpperCase())
+     setTyped('')
+-    setMessage('SPECIAL MOVE // Type the full phrase to unleash a heavy attack.')
++    setSpecialMode(true)
++    setMessage('ULTIMATE ART CHARGED // Complete the full phrase for bonus damage.')
+     inputRef.current?.focus()
+   }
+ 
+@@ -212,7 +231,7 @@
+       <section className="arena-card">
+         <div className="arena-topline">
+           <div><span className="section-index">01</span><span className="section-name">THE DUEL ARENA</span></div>
+-          <div className="round-clock"><span className="clock-dot" /> ROUND TIME <strong>00:{String(timeLeft).padStart(2, '0')}</strong></div>
++          <div className={`round-clock ${enemyTelegraph ? 'incoming' : ''}`}><span className="clock-dot" /> {enemyTelegraph ? 'INCOMING STRIKE' : 'ROUND TIME'} <strong>00:{String(timeLeft).padStart(2, '0')}</strong></div>
+         </div>
+         <div className="fighters-hud">
+           <div className="fighter-info player-info">
+@@ -246,7 +265,7 @@
+             <div className="word-display" aria-label={`Target word ${target}`}>
+               {target.split('').map((char, i) => <span key={`${target}-${i}`} className={i < typed.length ? 'typed-char' : ''}>{char === ' ' ? '·' : char}</span>)}
+             </div>
+-            <div className="target-hint">TYPE THE WORD TO EXECUTE A STRIKE</div>
++            <div className={`target-hint ${specialMode ? 'special-hint' : ''}`}>{specialMode ? 'ULTIMATE ART // COMPLETE THE PHRASE' : 'TYPE THE WORD TO EXECUTE A STRIKE'}</div>
+           </div>
+           <div className="typing-box">
+             <label htmlFor="typing-input">YOUR INPUT <span>↵ ENTER</span></label>
+@@ -266,8 +285,8 @@
+           </div>
+         </div>
+         <div className="combat-actions">
+-          <button className="primary-button" onClick={phase === 'playing' ? submitPhrase : beginDuel}>
+-            <span>{phase === 'playing' ? '⚡' : '▶'}</span>{phase === 'playing' ? 'CHARGE SPECIAL MOVE' : phase === 'ready' ? 'BEGIN DUEL' : 'FIGHT AGAIN'}<b>↗</b>
++          <button className={`primary-button ${phase === 'playing' && combo >= 2 ? 'charged' : ''}`} disabled={phase === 'playing' && (combo < 2 || specialMode)} onClick={phase === 'playing' ? submitPhrase : beginDuel}>
++            <span>{phase === 'playing' ? '⚡' : '▶'}</span>{phase === 'playing' ? specialMode ? 'ULTIMATE ART ACTIVE' : combo >= 2 ? 'UNLEASH ULTIMATE ART' : 'SPECIAL LOCKED // 2 HIT COMBO' : phase === 'ready' ? 'BEGIN DUEL' : 'FIGHT AGAIN'}<b>↗</b>
+           </button>
+           <div className="combat-message"><span className="message-icon">✦</span><span>{message}</span></div>
+         </div>
+
+--- a/src/game/ArenaScene.ts
++++ b/src/game/ArenaScene.ts
+@@ -5,8 +5,6 @@
+   enemyHp: number
+   playerMaxHp: number
+   enemyMaxHp: number
+-  playerHit?: number
+-  enemyHit?: number
+   phase: 'ready' | 'playing' | 'victory' | 'defeat'
+ }
+ 
+@@ -22,6 +20,7 @@
+   private flash = 0
+   private playerLunge = 0
+   private enemyLunge = 0
++  private specialFlash = 0
+ 
+   constructor() {
+     super('ArenaScene')
+@@ -38,8 +37,22 @@
+     this.scale.on('resize', () => this.drawArena())
+     this.game.events.on('arena:update', (state: ArenaState) => {
+       this.state = { ...this.state, ...state }
+-      if (state.playerHit) this.playerLunge = 1
+-      if (state.enemyHit) this.enemyLunge = 1
++      this.drawArena()
++    })
++    this.game.events.on('arena:action', (action: { kind: 'player' | 'enemy' | 'special'; combo?: number }) => {
++      if (action.kind === 'enemy') {
++        this.enemyLunge = 1
++        this.flash = 1
++        this.cameras.main.shake(120, 0.009)
++      } else {
++        this.playerLunge = 1
++        this.flash = 1
++        this.cameras.main.shake(action.kind === 'special' ? 190 : 95, action.kind === 'special' ? 0.016 : 0.006)
++        if (action.kind === 'special') this.specialFlash = 1
++      }
++      // Brief hit-stop makes confirmed hits feel weighty without pausing React's game timer.
++      this.time.timeScale = action.kind === 'special' ? 0.22 : 0.45
++      window.setTimeout(() => { if (this.scene.isActive()) this.time.timeScale = 1 }, action.kind === 'special' ? 110 : 55)
+       this.drawArena()
+     })
+     this.drawArena()
+@@ -50,6 +63,7 @@
+     this.playerLunge = Math.max(0, this.playerLunge - delta / 220)
+     this.enemyLunge = Math.max(0, this.enemyLunge - delta / 220)
+     this.flash = Math.max(0, this.flash - delta / 180)
++    this.specialFlash = Math.max(0, this.specialFlash - delta / 260)
+     this.drawArena()
+   }
+ 
+@@ -100,10 +114,17 @@
+ 
+     this.fx.clear()
+     if (this.playerLunge > 0.02) {
+-      this.fx.lineStyle(5, 0x63f6ff, this.playerLunge)
++      this.fx.lineStyle(this.specialFlash > 0.1 ? 13 : 5, this.specialFlash > 0.1 ? 0xd9b4ff : 0x63f6ff, this.playerLunge)
+       this.fx.lineBetween(px + 35 * scale, baseY - 110 * scale, ex - 48 * scale, baseY - 80 * scale)
+-      this.fx.fillStyle(0x63f6ff, this.playerLunge * 0.45)
+-      this.fx.fillCircle(ex - 45 * scale, baseY - 80 * scale, 25 * scale * this.playerLunge)
++      this.fx.lineStyle(2, 0xffffff, this.playerLunge * 0.9)
++      this.fx.lineBetween(px + 42 * scale, baseY - 124 * scale, ex - 35 * scale, baseY - 60 * scale)
++      this.fx.fillStyle(this.specialFlash > 0.1 ? 0xb77aff : 0x63f6ff, this.playerLunge * 0.45)
++      this.fx.fillCircle(ex - 45 * scale, baseY - 80 * scale, (this.specialFlash > 0.1 ? 48 : 25) * scale * this.playerLunge)
++      for (let i = 0; i < 5; i++) {
++        const spread = (i - 2) * 13 * scale
++        this.fx.fillStyle(i % 2 ? 0xffffff : 0x63f6ff, this.playerLunge * 0.85)
++        this.fx.fillCircle(ex - 48 * scale + spread, baseY - 82 * scale + Math.sin(this.tick / 35 + i) * 16 * scale, (2 + (i % 2)) * scale)
++      }
+     }
+     if (this.enemyLunge > 0.02) {
+       this.fx.lineStyle(5, 0xff4f8b, this.enemyLunge)
+@@ -111,6 +132,12 @@
+       this.fx.fillStyle(0xff4f8b, this.enemyLunge * 0.4)
+       this.fx.fillCircle(px + 45 * scale, baseY - 80 * scale, 24 * scale * this.enemyLunge)
+     }
++    if (this.specialFlash > 0.02) {
++      this.fx.fillStyle(0x9d65ff, this.specialFlash * 0.10)
++      this.fx.fillRect(0, 0, w, h)
++      this.fx.lineStyle(2, 0xe5caff, this.specialFlash * 0.75)
++      this.fx.strokeCircle(ex - 45 * scale, baseY - 80 * scale, (55 + (1 - this.specialFlash) * 80) * scale)
++    }
+     if (this.flash > 0) {
+       this.fx.fillStyle(0xffffff, this.flash * 0.16)
+       this.fx.fillRect(0, 0, w, h)
+@@ -118,7 +145,7 @@
+     this.label.setPosition(w / 2, h * 0.16)
+       .setText(this.state.phase === 'victory' ? 'DUEL COMPLETE // VICTORY' :
+         this.state.phase === 'defeat' ? 'DUEL COMPLETE // DEFEAT' :
+-        this.state.phase === 'ready' ? 'READY YOUR KEYBOARD' : 'FIGHT // TYPE TO STRIKE')
++        this.state.phase === 'ready' ? 'READY YOUR KEYBOARD' : this.specialFlash > 0.1 ? 'ULTIMATE ART // VOID BREAKER' : 'FIGHT // TYPE TO STRIKE')
+       .setColor(this.state.phase === 'victory' ? '#7bffcf' : this.state.phase === 'defeat' ? '#ff739e' : '#e9e9ff')
+   }
+ 
+
+--- a/src/styles.css
++++ b/src/styles.css
+@@ -154,3 +154,12 @@
+   .footer { flex-wrap: wrap; line-height: 1.5; }
+   .footer span:last-child { display: none; }
+ }
++
++
++/* Combat upgrade: readable enemy telegraphs, charged ultimate state, and input lock feedback. */
++.round-clock.incoming { color: #ff8bab; animation: dangerPulse .42s ease-in-out infinite alternate; }
++.round-clock.incoming .clock-dot { background: #ff4f91; box-shadow: 0 0 12px #ff4f91; }
++.target-hint.special-hint { color: #c7a5ff; text-shadow: 0 0 12px #9b6cff55; }
++.primary-button.charged { background: linear-gradient(100deg, #c4a0ff, #58eaff); box-shadow: 0 0 22px #9b6cff3d; }
++.primary-button:disabled { cursor: not-allowed; opacity: .48; transform: none; box-shadow: none; }
++@keyframes dangerPulse { from { opacity: .65; } to { opacity: 1; } }
